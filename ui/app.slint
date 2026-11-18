@@ -1,0 +1,604 @@
+import {
+    Button,
+    CheckBox,
+    ComboBox,
+    LineEdit,
+    Palette,
+    ProgressIndicator,
+    ScrollView,
+    Spinner,
+    Switch,
+    TextEdit,
+} from "std-widgets.slint";
+
+export enum PopupMode {
+    loading,
+    result,
+    no-key,
+    quota,
+    empty,
+    not-text,
+    network,
+    failed,
+    too-long,
+}
+
+component FieldLabel inherits Text {
+    font-size: 14px;
+    font-weight: FontWeight.semi-bold;
+    color: Palette.foreground;
+}
+
+component Hint inherits Text {
+    font-size: 12px;
+    wrap: word-wrap;
+    color: Palette.foreground.with-alpha(0.45);
+}
+
+component Secondary inherits Text {
+    font-size: 12px;
+    color: Palette.foreground.with-alpha(0.6);
+}
+
+component Card inherits Rectangle {
+    background: Palette.foreground.with-alpha(0.04);
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: Palette.foreground.with-alpha(0.08);
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        @children
+    }
+}
+
+component HotkeyCapture inherits FocusScope {
+    in-out property <bool> recording: false;
+    in-out property <string> label: "Ctrl + Alt + T";
+    callback captured(string, bool, bool, bool, bool);
+    callback recording-changed(bool);
+
+    horizontal-stretch: 1;
+    height: 32px;
+
+    key-pressed(event) => {
+        if !root.recording {
+            return reject;
+        }
+        if event.text == Key.Escape {
+            root.recording = false;
+            root.recording-changed(false);
+            return accept;
+        }
+        root.captured(
+            event.text,
+            event.modifiers.control,
+            event.modifiers.alt,
+            event.modifiers.shift,
+            event.modifiers.meta,
+        );
+        return accept;
+    }
+
+    changed has-focus => {
+        if !root.has-focus && root.recording {
+            root.recording = false;
+            root.recording-changed(false);
+        }
+    }
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 4px;
+        background: root.recording ? Palette.background : Palette.control-background;
+        border-width: 1px;
+        border-color: root.recording ? Palette.accent-background : Palette.border;
+
+        TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => {
+                root.recording = true;
+                root.recording-changed(true);
+                root.focus();
+            }
+        }
+
+        Text {
+            x: 12px;
+            y: (parent.height - self.height) / 2;
+            text: root.recording ? "새 단축키를 누르세요…" : root.label;
+            color: root.recording ? Palette.foreground.with-alpha(0.6) : Palette.foreground;
+        }
+
+        if root.recording: Rectangle {
+            x: 4px;
+            y: parent.height - 2px;
+            width: parent.width - 8px;
+            height: 2px;
+            background: Palette.accent-background;
+        }
+    }
+}
+
+export component AppTray inherits SystemTrayIcon {
+    in-out property <string> hotkey-compact: "Ctrl+Alt+T";
+    // Rust가 탭 문자를 넣어 단축키를 오른쪽에 붙인다. Slint 문자열은 \t를 지원하지 않는다.
+    in-out property <string> hotkey-title: "단축키    Ctrl+Alt+T";
+    icon: @image-url("../assets/tray-64.png");
+    tooltip: "클립 번역";
+    callback open-settings();
+    callback open-translate();
+    callback quit();
+
+    clicked => {
+        root.open-translate();
+    }
+
+    Menu {
+        MenuItem {
+            // 오른쪽 정렬은 네이티브 메뉴의 탭 관례를 따른다.
+            title: root.hotkey-title;
+            enabled: false;
+        }
+        MenuSeparator {}
+        MenuItem {
+            title: "설정";
+            activated => {
+                root.open-settings();
+            }
+        }
+        MenuItem {
+            title: "번역창 열기";
+            activated => {
+                root.open-translate();
+            }
+        }
+        MenuSeparator {}
+        MenuItem {
+            title: "종료";
+            activated => {
+                root.quit();
+            }
+        }
+    }
+}
+
+export component SettingsWindow inherits Window {
+    title: "설정";
+    icon: @image-url("../assets/icon-256.png");
+    default-font-size: 14px;
+    width: 460px;
+    height: 680px;
+
+    in-out property <int> provider-index: 0;
+    in-out property <string> deepl-key;
+    in-out property <bool> deepl-connected: false;
+    in-out property <string> deepl-status-prefix: "연결됨 · 남은 글자 수 ";
+    in-out property <string> deepl-remaining: "";
+    in-out property <string> deepl-limit: "";
+    in-out property <float> deepl-progress: 0;
+    in-out property <string> deepl-message: "";
+    in-out property <string> deepl-hint: "키를 입력한 뒤 연결 테스트를 눌러 주세요.";
+    in-out property <bool> deepl-testing: false;
+
+    in-out property <string> azure-key;
+    in-out property <bool> azure-connected: false;
+    in-out property <string> azure-status-prefix: "연결됨 · 이번 달 남은 글자 수 ";
+    in-out property <string> azure-remaining: "";
+    in-out property <string> azure-limit: "";
+    in-out property <float> azure-progress: 0;
+    in-out property <string> azure-message: "";
+    in-out property <bool> azure-testing: false;
+    in-out property <[string]> region-labels;
+    in-out property <int> region-index: 0;
+
+    in-out property <bool> fallback: false;
+    in-out property <string> hotkey-label: "Ctrl + Alt + T";
+    in-out property <string> hotkey-id: "ctrl+alt+t";
+    in-out property <string> hotkey-hint: "칸을 클릭한 뒤 새 조합을 누르면 변경됩니다.";
+    in-out property <bool> recording: false;
+
+    in-out property <[string]> language-labels;
+    in-out property <int> lang1-index: 0;
+    in-out property <int> lang2-index: 1;
+    in-out property <bool> autostart: false;
+    in-out property <string> save-error: "";
+
+    callback test-deepl();
+    callback test-azure();
+    callback save();
+    callback cancel();
+    callback deepl-edited();
+    callback azure-edited();
+    callback provider-changed();
+    callback hotkey-captured(string, bool, bool, bool, bool);
+    callback hotkey-recording(bool);
+
+    public function apply-theme(dark: bool) {
+        if dark {
+            Palette.color-scheme = ColorScheme.dark;
+        } else {
+            Palette.color-scheme = ColorScheme.light;
+        }
+    }
+
+    Rectangle {
+        background: Palette.background;
+        VerticalLayout {
+            padding-top: 12px;
+            padding-left: 24px;
+            padding-right: 24px;
+            Text {
+                text: "설정";
+                font-size: 28px;
+                font-weight: FontWeight.semi-bold;
+                color: Palette.foreground;
+            }
+
+            ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    padding-top: 16px;
+                    padding-bottom: 8px;
+                    spacing: 16px;
+
+                    VerticalLayout {
+                        spacing: 8px;
+                        FieldLabel { text: "기본 번역 서비스"; }
+                        ComboBox {
+                            model: ["DeepL", "Microsoft Azure Translator"];
+                            current-index <=> root.provider-index;
+                            selected(_) => {
+                                root.provider-changed();
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 10px;
+                        Card {
+                            FieldLabel { text: "DeepL API 키"; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                LineEdit {
+                                    horizontal-stretch: 1;
+                                    placeholder-text: "API 키를 입력하세요 (:fx)";
+                                    input-type: password;
+                                    text <=> root.deepl-key;
+                                    edited => {
+                                        root.deepl-edited();
+                                    }
+                                }
+                                Button {
+                                    text: "연결 테스트";
+                                    enabled: !root.deepl-testing;
+                                    clicked => {
+                                        root.test-deepl();
+                                    }
+                                }
+                            }
+                            if root.deepl-connected: HorizontalLayout {
+                                spacing: 0px;
+                                Secondary { text: root.deepl-status-prefix; }
+                                Text {
+                                    text: root.deepl-remaining;
+                                    font-size: 12px;
+                                    font-weight: FontWeight.semi-bold;
+                                    color: Palette.foreground;
+                                }
+                                Secondary { text: " / " + root.deepl-limit; }
+                            }
+                            if root.deepl-message != "": Secondary { text: root.deepl-message; }
+                            if root.deepl-connected: ProgressIndicator {
+                                progress: root.deepl-progress;
+                            }
+                            Hint { text: root.deepl-hint; }
+                        }
+
+                        Card {
+                            FieldLabel { text: "Azure Translator 키"; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                LineEdit {
+                                    horizontal-stretch: 1;
+                                    placeholder-text: "Azure 구독 키";
+                                    input-type: password;
+                                    text <=> root.azure-key;
+                                    edited => {
+                                        root.azure-edited();
+                                    }
+                                }
+                                Button {
+                                    text: "연결 테스트";
+                                    enabled: !root.azure-testing;
+                                    clicked => {
+                                        root.test-azure();
+                                    }
+                                }
+                            }
+                            FieldLabel { text: "Azure 지역"; }
+                            ComboBox {
+                                model: root.region-labels;
+                                current-index <=> root.region-index;
+                            }
+                            if root.azure-connected: HorizontalLayout {
+                                spacing: 0px;
+                                Secondary { text: root.azure-status-prefix; }
+                                Text {
+                                    text: root.azure-remaining;
+                                    font-size: 12px;
+                                    font-weight: FontWeight.semi-bold;
+                                    color: Palette.foreground;
+                                }
+                                Secondary { text: " / " + root.azure-limit; }
+                            }
+                            if root.azure-message != "": Secondary { text: root.azure-message; }
+                            if root.azure-connected: ProgressIndicator {
+                                progress: root.azure-progress;
+                            }
+                            Hint { text: "Azure Translator F0 무료 등급 · 매달 200만 자"; }
+                        }
+                    }
+
+                    CheckBox {
+                        text: "DeepL 소진 시 Azure로 자동 전환";
+                        checked <=> root.fallback;
+                    }
+
+                    VerticalLayout {
+                        spacing: 8px;
+                        FieldLabel { text: "단축키"; }
+                        HotkeyCapture {
+                            recording <=> root.recording;
+                            label <=> root.hotkey-label;
+                            captured(key, ctrl, alt, shift, win) => {
+                                root.hotkey-captured(key, ctrl, alt, shift, win);
+                            }
+                            recording-changed(active) => {
+                                root.hotkey-recording(active);
+                            }
+                        }
+                        Hint { text: root.hotkey-hint; }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        VerticalLayout {
+                            spacing: 8px;
+                            horizontal-stretch: 1;
+                            FieldLabel { text: "언어 1"; }
+                            ComboBox {
+                                model: root.language-labels;
+                                current-index <=> root.lang1-index;
+                            }
+                            Hint { text: "기본 번역 대상"; }
+                        }
+                        VerticalLayout {
+                            spacing: 8px;
+                            horizontal-stretch: 1;
+                            FieldLabel { text: "언어 2"; }
+                            ComboBox {
+                                model: root.language-labels;
+                                current-index <=> root.lang2-index;
+                            }
+                            Hint { text: "언어 1로 된 글을 번역할 때"; }
+                        }
+                    }
+
+                    Switch {
+                        text: "윈도우 시작 시 자동 실행";
+                        checked <=> root.autostart;
+                    }
+                }
+            }
+
+            if root.save-error != "": Text {
+                text: root.save-error;
+                font-size: 12px;
+                color: #C42B1C;
+                wrap: word-wrap;
+            }
+
+            Rectangle {
+                height: 1px;
+                background: Palette.foreground.with-alpha(0.08);
+            }
+
+            HorizontalLayout {
+                padding-top: 16px;
+                padding-bottom: 20px;
+                spacing: 8px;
+                alignment: end;
+                Button {
+                    text: "취소";
+                    clicked => {
+                        root.cancel();
+                    }
+                }
+                Button {
+                    text: "저장";
+                    primary: true;
+                    clicked => {
+                        root.save();
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component TranslateWindow inherits Window {
+    title: "번역";
+    icon: @image-url("../assets/icon-256.png");
+    default-font-size: 14px;
+    always-on-top: true;
+    width: root.mode == PopupMode.result ? 520px : 400px;
+    height: root.mode == PopupMode.result ? 480px : 260px;
+
+    in-out property <PopupMode> mode: loading;
+    in-out property <string> source-text;
+    in-out property <string> translated-text;
+    in-out property <string> detected-label;
+    in-out property <string> provider-note;
+    in-out property <string> error-title;
+    in-out property <string> error-detail;
+    in-out property <bool> show-settings-button: false;
+    in-out property <bool> show-retry-button: false;
+    in-out property <[string]> language-labels;
+    in-out property <int> target-index: 0;
+    in-out property <string> copy-label: "복사";
+    in-out property <bool> busy: false;
+
+    callback target-changed(string);
+    callback copy-clicked();
+    callback open-settings();
+    callback retry();
+    callback close-popup();
+
+    public function apply-theme(dark: bool) {
+        if dark {
+            Palette.color-scheme = ColorScheme.dark;
+        } else {
+            Palette.color-scheme = ColorScheme.light;
+        }
+    }
+
+    public function focus-popup() {
+        focus-scope.focus();
+    }
+
+    focus-scope := FocusScope {
+        width: 100%;
+        height: 100%;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.close-popup();
+                return accept;
+            }
+            reject
+        }
+
+        Rectangle {
+            background: Palette.background;
+            width: 100%;
+            height: 100%;
+
+            if root.mode == PopupMode.result: VerticalLayout {
+                padding: 12px;
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-bottom: 16px;
+                spacing: 8px;
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: center;
+                    FieldLabel { text: "원문"; }
+                    Rectangle { horizontal-stretch: 1; }
+                    Text {
+                        text: root.detected-label;
+                        font-size: 12px;
+                        color: Palette.foreground.with-alpha(0.6);
+                    }
+                }
+                TextEdit {
+                    text: root.source-text;
+                    read-only: true;
+                    wrap: word-wrap;
+                    min-height: 88px;
+                    vertical-stretch: 1;
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: center;
+                    FieldLabel { text: "번역문"; }
+                    Rectangle { horizontal-stretch: 1; }
+                    ComboBox {
+                        model: root.language-labels;
+                        current-index: root.target-index;
+                        enabled: !root.busy;
+                        preferred-width: 160px;
+                        selected(value) => {
+                            root.target-changed(value);
+                        }
+                    }
+                    Button {
+                        text: root.copy-label;
+                        enabled: !root.busy && root.translated-text != "";
+                        clicked => {
+                            root.copy-clicked();
+                        }
+                    }
+                }
+                TextEdit {
+                    text: root.translated-text;
+                    read-only: true;
+                    wrap: word-wrap;
+                    min-height: 88px;
+                    vertical-stretch: 1;
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: center;
+                    padding-top: 4px;
+                    Text {
+                        text: root.provider-note;
+                        font-size: 12px;
+                        color: Palette.foreground.with-alpha(0.45);
+                        vertical-stretch: 0;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    Text {
+                        text: "Esc로 닫기";
+                        font-size: 12px;
+                        color: Palette.foreground.with-alpha(0.45);
+                    }
+                }
+            }
+
+            if root.mode != PopupMode.result: VerticalLayout {
+                alignment: center;
+                spacing: 12px;
+                padding: 28px;
+                padding-left: 16px;
+                padding-right: 16px;
+                vertical-stretch: 1;
+
+                if root.mode == PopupMode.loading: Spinner {}
+                Text {
+                    text: root.error-title;
+                    font-size: 14px;
+                    font-weight: FontWeight.semi-bold;
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: root.error-detail;
+                    font-size: 14px;
+                    color: Palette.foreground.with-alpha(0.6);
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                    width: 340px;
+                }
+                if root.show-settings-button: Button {
+                    text: "설정 열기";
+                    primary: true;
+                    clicked => {
+                        root.open-settings();
+                    }
+                }
+                if root.show-retry-button: Button {
+                    text: "다시 시도";
+                    primary: true;
+                    clicked => {
+                        root.retry();
+                    }
+                }
+            }
+        }
+    }
+}
