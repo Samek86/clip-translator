@@ -50,14 +50,14 @@ pub fn encode(protector: &dyn Protector, secrets: &Secrets) -> Result<Vec<u8>, S
 
 pub fn decode(protector: &dyn Protector, bytes: &[u8]) -> Result<Secrets, String> {
     if bytes.len() < 4 || &bytes[..4] != MAGIC {
-        return Err("키 파일 형식이 아닙니다.".into());
+        return Err("The key file is not in the expected format.".into());
     }
     let mut offset = 4;
     let deepl = read_field(protector, bytes, &mut offset)?;
     let azure = read_field(protector, bytes, &mut offset)?;
     Ok(Secrets {
-        deepl_key: String::from_utf8(deepl).map_err(|_| "DeepL 키 인코딩".to_string())?,
-        azure_key: String::from_utf8(azure).map_err(|_| "Azure 키 인코딩".to_string())?,
+        deepl_key: String::from_utf8(deepl).map_err(|_| "DeepL key encoding".to_string())?,
+        azure_key: String::from_utf8(azure).map_err(|_| "Azure key encoding".to_string())?,
     })
 }
 
@@ -90,9 +90,9 @@ fn write_field(out: &mut Vec<u8>, protector: &dyn Protector, plain: &[u8]) -> Re
     }
     let blob = protector.protect(plain)?;
     if blob.len() > MAX_BLOB {
-        return Err("암호화된 키가 너무 깁니다.".into());
+        return Err("The encrypted key is too long.".into());
     }
-    let len = u32::try_from(blob.len()).map_err(|_| "키 길이".to_string())?;
+    let len = u32::try_from(blob.len()).map_err(|_| "key length".to_string())?;
     out.extend_from_slice(&len.to_le_bytes());
     out.extend_from_slice(&blob);
     Ok(())
@@ -104,7 +104,7 @@ fn read_field(
     offset: &mut usize,
 ) -> Result<Vec<u8>, String> {
     if bytes.len() < *offset + 4 {
-        return Err("키 파일이 잘렸습니다.".into());
+        return Err("The key file is truncated.".into());
     }
     let len = u32::from_le_bytes(bytes[*offset..*offset + 4].try_into().unwrap()) as usize;
     *offset += 4;
@@ -112,7 +112,7 @@ fn read_field(
         return Ok(Vec::new());
     }
     if len > MAX_BLOB || bytes.len() < *offset + len {
-        return Err("키 파일이 잘렸습니다.".into());
+        return Err("The key file is truncated.".into());
     }
     let blob = &bytes[*offset..*offset + len];
     *offset += len;

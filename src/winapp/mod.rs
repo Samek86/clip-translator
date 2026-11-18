@@ -16,10 +16,9 @@ use crate::provider::ProviderKind;
 use crate::router::{self, Credentials, TranslateOptions, Translation};
 use crate::secrets::{self, Secrets};
 use crate::ui_text::{
-    self, connection_error, detected_label, format_grouped, popup_for_failure, popup_loading,
-    popup_not_text, provider_note, remaining_ratio, AZURE_STATUS_PREFIX, BUSY_NOTE, COPIED_LABEL,
-    COPY_FAILED, COPY_LABEL, DEEPL_STATUS_PREFIX, HOTKEY_HINT, HOTKEY_NEEDS_MODIFIER,
-    HOTKEY_UNSUPPORTED, TESTING,
+    self, connection_error, detected_label, format_grouped, popup_for_failure, popup_not_text,
+    provider_note, remaining_ratio, AZURE_STATUS_PREFIX, COPIED_LABEL, COPY_FAILED, COPY_LABEL,
+    DEEPL_STATUS_PREFIX, HOTKEY_HINT, HOTKEY_NEEDS_MODIFIER, HOTKEY_UNSUPPORTED, TESTING,
 };
 use crate::usage::{self, azure_remaining, deepl_remaining, AZURE_MONTHLY_LIMIT};
 
@@ -53,7 +52,7 @@ pub fn run() -> Result<(), String> {
     match platform::claim_single_instance() {
         Ok(true) => {}
         Ok(false) => {
-            platform::log("이미 실행 중이라 기존 인스턴스에 설정을 열라고 알렸습니다.");
+            platform::log("already running; asked the existing instance to open Settings");
             return Ok(());
         }
         Err(err) => {
@@ -67,7 +66,7 @@ pub fn run() -> Result<(), String> {
     let config = match config::load_config(&config_path) {
         Ok(config) => config,
         Err(err) => {
-            platform::log(&format!("설정을 읽지 못했습니다: {err}"));
+            platform::log(&format!("could not read settings: {err}"));
             let broken = config_path.with_extension("toml.broken");
             let _ = std::fs::rename(&config_path, &broken);
             AppConfig::default()
@@ -75,11 +74,11 @@ pub fn run() -> Result<(), String> {
     };
     let secrets =
         secrets::load_file(&config::secrets_path(&dir), &platform::Dpapi).unwrap_or_else(|err| {
-            platform::log(&format!("저장된 키를 열지 못했습니다: {err}"));
+            platform::log(&format!("could not open saved keys: {err}"));
             Secrets::default()
         });
     if let Err(err) = platform::set_autostart(config.autostart) {
-        platform::log(&format!("자동 실행 경로를 갱신하지 못했습니다: {err}"));
+        platform::log(&format!("could not refresh the startup entry: {err}"));
     }
 
     let http = http_client::ReqwestClient::new()?;
@@ -118,7 +117,7 @@ pub fn run() -> Result<(), String> {
     wire_windows(&state, &tray, &settings, &translate);
     tray.show().map_err(|err| err.to_string())?;
     if first_run {
-        platform::log("처음 실행이라 설정 창을 엽니다.");
+        platform::log("first run; opening Settings");
         open_settings(&state, &settings);
     }
 
@@ -186,7 +185,7 @@ fn install_models(settings: &SettingsWindow, translate: &TranslateWindow) {
 }
 
 fn hotkey_menu_title(compact: &str) -> String {
-    format!("단축키\t{compact}")
+    format!("Hotkey\t{compact}")
 }
 
 fn string_model<I, S>(items: I) -> ModelRc<SharedString>
@@ -391,14 +390,24 @@ fn wire_windows(
     });
 
     let translate_weak = translate.as_weak();
+    let state_esc = Arc::clone(state);
     translate.on_close_popup(move || {
+        if let Ok(mut state) = state_esc.lock() {
+            state.generation = state.generation.wrapping_add(1);
+            state.busy = false;
+        }
         if let Some(translate) = translate_weak.upgrade() {
             let _ = translate.hide();
         }
     });
-    translate
-        .window()
-        .on_close_requested(|| slint::CloseRequestResponse::HideWindow);
+    let state_close_translate = Arc::clone(state);
+    translate.window().on_close_requested(move || {
+        if let Ok(mut state) = state_close_translate.lock() {
+            state.generation = state.generation.wrapping_add(1);
+            state.busy = false;
+        }
+        slint::CloseRequestResponse::HideWindow
+    });
 
     let state_from_popup = Arc::clone(state);
     let settings_weak = settings.as_weak();
@@ -416,29 +425,13 @@ fn open_settings(state: &Arc<Mutex<AppState>>, settings: &SettingsWindow) {
         state.tested_azure = None;
         fill_settings(settings, &state);
     }
-    let already = settings.window().is_visible();
-    let _ = settings.show();
-    present(
-        settings.window(),
-        !already,
-        460.0,
-        680.0,
-        platform::FrameStyle::Settings,
-    );
-    if !already {
-        let settings = settings.as_weak();
-        slint::Timer::single_shot(Duration::from_millis(40), move || {
-            if let Some(settings) = settings.upgrade() {
-                present(
-                    settings.window(),
-                    true,
-                    460.0,
-                    680.0,
-                    platform::FrameStyle::Settings,
-                );
-            }
-        });
+    let window = settings.window();
+    if !window.is_visible() {
+        platform::place_before_show(window, 460.0, 680.0);
+        let _ = settings.show();
+        platform::tune_frame(window, platform::FrameStyle::Settings);
     }
+    platform::focus_window(window);
 }
 
 fn fill_settings(settings: &SettingsWindow, state: &AppState) {
@@ -578,18 +571,18 @@ fn save_settings(
             .unwrap_or_else(|err| err.into_inner())
             .hotkey
             .set(previous_hotkey);
-        settings.set_save_error(format!("자동 실행을 바꾸지 못했습니다: {err}").into());
+        settings.set_save_error(format!("Could not change startup registration: {err}").into());
         return;
     }
     let config_path = config::config_path(&state.lock().unwrap_or_else(|err| err.into_inner()).dir);
     let secrets_path =
         config::secrets_path(&state.lock().unwrap_or_else(|err| err.into_inner()).dir);
     if let Err(err) = config::save_config(&config_path, &next_config) {
-        settings.set_save_error(format!("설정을 저장하지 못했습니다: {err}").into());
+        settings.set_save_error(format!("Could not save settings: {err}").into());
         return;
     }
     if let Err(err) = secrets::save_file(&secrets_path, &platform::Dpapi, &next_secrets) {
-        settings.set_save_error(format!("키를 저장하지 못했습니다: {err}").into());
+        settings.set_save_error(format!("Could not save the key: {err}").into());
         return;
     }
     {
@@ -605,7 +598,7 @@ fn save_settings(
         tray.set_hotkey_title(hotkey_menu_title(&compact).into());
     }
     let _ = settings.hide();
-    platform::log("설정을 저장했습니다.");
+    platform::log("settings saved");
 }
 
 fn capture_hotkey(
@@ -652,7 +645,7 @@ fn test_deepl(state: &Arc<Mutex<AppState>>, settings: &SettingsWindow) {
     let key = settings.get_deepl_key().as_str().trim().to_string();
     if key.is_empty() {
         settings.set_deepl_connected(false);
-        settings.set_deepl_message("키를 입력한 뒤 연결 테스트를 눌러 주세요.".into());
+        settings.set_deepl_message("Enter a key, then test the connection.".into());
         refresh_deepl_hint(settings);
         return;
     }
@@ -684,7 +677,7 @@ fn test_deepl(state: &Arc<Mutex<AppState>>, settings: &SettingsWindow) {
                         .tested_deepl = Some((key, usage));
                 }
                 Err(err) => {
-                    platform::log(&format!("DeepL 연결 테스트 실패: {err}"));
+                    platform::log(&format!("DeepL connection test failed: {err}"));
                     settings.set_deepl_connected(false);
                     settings.set_deepl_message(connection_error(&err).into());
                 }
@@ -699,7 +692,7 @@ fn test_azure(state: &Arc<Mutex<AppState>>, settings: &SettingsWindow) {
     let region = region_id(settings.get_region_index()).to_string();
     if key.is_empty() {
         settings.set_azure_connected(false);
-        settings.set_azure_message("키를 입력한 뒤 연결 테스트를 눌러 주세요.".into());
+        settings.set_azure_message("Enter a key, then test the connection.".into());
         return;
     }
     settings.set_azure_testing(true);
@@ -744,7 +737,7 @@ fn test_azure(state: &Arc<Mutex<AppState>>, settings: &SettingsWindow) {
                         .tested_azure = Some(key);
                 }
                 Err(err) => {
-                    platform::log(&format!("Azure 연결 테스트 실패: {err}"));
+                    platform::log(&format!("Azure connection test failed: {err}"));
                     settings.set_azure_connected(false);
                     settings.set_azure_message(connection_error(&err).into());
                 }
@@ -788,11 +781,11 @@ fn translate_clipboard(
         ClipboardRead::Text(text) => translate_text(state, translate, text, explicit),
         ClipboardRead::Empty => {
             show_failure_popup(translate, &router::TranslateFailure::Empty);
-            reveal_translate(translate);
+            show_translate_window(translate);
         }
         ClipboardRead::NotText => {
             show_static_popup(translate, popup_not_text(), PopupMode::NotText);
-            reveal_translate(translate);
+            show_translate_window(translate);
         }
     }
 }
@@ -803,7 +796,8 @@ fn translate_text(
     source: String,
     explicit: Option<LanguageId>,
 ) {
-    let compact = translate.get_mode() != PopupMode::Result || explicit.is_none();
+    // Stay hidden until the finished result or error is ready. Do not show a
+    // loading view, and do not change the text of a window that is already open.
     let generation = {
         let mut state = state.lock().unwrap_or_else(|err| err.into_inner());
         state.generation = state.generation.wrapping_add(1);
@@ -815,23 +809,6 @@ fn translate_text(
         }
         state.generation
     };
-    if compact {
-        let loading = popup_loading();
-        translate.set_mode(PopupMode::Loading);
-        translate.set_error_title(loading.title.into());
-        translate.set_error_detail(loading.detail.into());
-        translate.set_show_settings_button(false);
-        translate.set_show_retry_button(false);
-        translate.set_busy(true);
-        reveal_translate(translate);
-    } else {
-        translate.set_busy(true);
-        translate.set_provider_note(BUSY_NOTE.into());
-        translate.set_copy_label(COPY_LABEL.into());
-        let _ = translate.show();
-        platform::focus_window(translate.window());
-        translate.invoke_focus_popup();
-    }
 
     let (http, credentials, options) = {
         let state = state.lock().unwrap_or_else(|err| err.into_inner());
@@ -876,19 +853,15 @@ fn translate_text(
                     }
                     if let Err(err) = config::save_config(&config::config_path(&dir), &state.config)
                     {
-                        platform::log(&format!("사용량을 저장하지 못했습니다: {err}"));
+                        platform::log(&format!("could not save usage: {err}"));
                     }
-                    if translate.window().is_visible() {
-                        show_translation(&translate, &mut state, &translation);
-                        reveal_translate(&translate);
-                    }
+                    show_translation(&translate, &mut state, &translation);
+                    show_translate_window(&translate);
                 }
                 Err(err) => {
-                    platform::log(&format!("번역 실패: {err}"));
-                    if translate.window().is_visible() {
-                        show_failure_popup(&translate, &err);
-                        reveal_translate(&translate);
-                    }
+                    platform::log(&format!("translation failed: {err}"));
+                    show_failure_popup(&translate, &err);
+                    show_translate_window(&translate);
                 }
             }
         });
@@ -950,58 +923,27 @@ fn copy_translation(translate: &TranslateWindow) {
             });
         }
         Err(err) => {
-            platform::log(&format!("복사 실패: {err}"));
+            platform::log(&format!("copy failed: {err}"));
             translate.set_copy_label(COPY_FAILED.into());
         }
     }
 }
 
-fn reveal_translate(translate: &TranslateWindow) {
+fn show_translate_window(translate: &TranslateWindow) {
     let (width, height) = if translate.get_mode() == PopupMode::Result {
         (520.0, 480.0)
     } else {
         (400.0, 260.0)
     };
-    let already = translate.window().is_visible();
-    let _ = translate.show();
-    present(
-        translate.window(),
-        !already,
-        width,
-        height,
-        platform::FrameStyle::Translate,
-    );
-    translate.invoke_focus_popup();
-    if !already {
-        let translate = translate.as_weak();
-        slint::Timer::single_shot(Duration::from_millis(40), move || {
-            if let Some(translate) = translate.upgrade() {
-                present(
-                    translate.window(),
-                    true,
-                    width,
-                    height,
-                    platform::FrameStyle::Translate,
-                );
-                translate.invoke_focus_popup();
-            }
-        });
+    let window = translate.window();
+    if !window.is_visible() {
+        // Content, size, and position are final before the first frame.
+        platform::place_before_show(window, width, height);
+        let _ = translate.show();
+        platform::tune_frame(window, platform::FrameStyle::Translate);
     }
-}
-
-fn present(
-    window: &slint::Window,
-    tune: bool,
-    width: f32,
-    height: f32,
-    style: platform::FrameStyle,
-) {
-    window.set_size(slint::LogicalSize::new(width, height));
-    if tune {
-        platform::tune_frame(window, style);
-    }
-    platform::center_on_cursor(window);
     platform::focus_window(window);
+    translate.invoke_focus_popup();
 }
 
 enum ClipboardRead {
@@ -1014,7 +956,7 @@ fn read_clipboard() -> ClipboardRead {
     let mut clipboard = match arboard::Clipboard::new() {
         Ok(clipboard) => clipboard,
         Err(err) => {
-            platform::log(&format!("클립보드를 열지 못했습니다: {err}"));
+            platform::log(&format!("could not open the clipboard: {err}"));
             return ClipboardRead::NotText;
         }
     };

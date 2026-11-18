@@ -48,7 +48,7 @@ impl HotkeyService {
             .map_err(|err| err.to_string())?;
         let thread_id = id_rx
             .recv_timeout(Duration::from_secs(2))
-            .map_err(|_| "단축키 스레드를 시작하지 못했습니다.".to_string())?;
+            .map_err(|_| "Could not start the shortcut thread.".to_string())?;
         let service = Self {
             thread_id,
             command,
@@ -99,7 +99,7 @@ impl HotkeyService {
         }
         self.replies
             .recv_timeout(Duration::from_secs(2))
-            .map_err(|_| "단축키 스레드가 응답하지 않습니다.".to_string())?
+            .map_err(|_| "The shortcut thread did not respond.".to_string())?
     }
 }
 
@@ -124,7 +124,7 @@ fn hotkey_thread(
     let mut saved = initial;
     let mut registered = register(&saved);
     if !registered {
-        super::platform::log("처음 단축키를 등록하지 못했습니다.");
+        super::platform::log("could not register the initial shortcut");
     }
     if id_tx.send(thread_id).is_err() {
         return;

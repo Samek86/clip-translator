@@ -6,13 +6,11 @@ import {
     Palette,
     ProgressIndicator,
     ScrollView,
-    Spinner,
     Switch,
     TextEdit,
 } from "std-widgets.slint";
 
 export enum PopupMode {
-    loading,
     result,
     no-key,
     quota,
@@ -108,7 +106,7 @@ component HotkeyCapture inherits FocusScope {
         Text {
             x: 12px;
             y: (parent.height - self.height) / 2;
-            text: root.recording ? "새 단축키를 누르세요…" : root.label;
+            text: root.recording ? "Press a new shortcut…" : root.label;
             color: root.recording ? Palette.foreground.with-alpha(0.6) : Palette.foreground;
         }
 
@@ -124,10 +122,10 @@ component HotkeyCapture inherits FocusScope {
 
 export component AppTray inherits SystemTrayIcon {
     in-out property <string> hotkey-compact: "Ctrl+Alt+T";
-    // Rust가 탭 문자를 넣어 단축키를 오른쪽에 붙인다. Slint 문자열은 \t를 지원하지 않는다.
-    in-out property <string> hotkey-title: "단축키    Ctrl+Alt+T";
+    // Rust inserts a tab so the shortcut sits on the right. Slint strings have no \t.
+    in-out property <string> hotkey-title: "Hotkey    Ctrl+Alt+T";
     icon: @image-url("../assets/tray-64.png");
-    tooltip: "클립 번역";
+    tooltip: "Clip Translator";
     callback open-settings();
     callback open-translate();
     callback quit();
@@ -138,26 +136,26 @@ export component AppTray inherits SystemTrayIcon {
 
     Menu {
         MenuItem {
-            // 오른쪽 정렬은 네이티브 메뉴의 탭 관례를 따른다.
+            // A tab is the native-menu convention for a right-aligned shortcut.
             title: root.hotkey-title;
             enabled: false;
         }
         MenuSeparator {}
         MenuItem {
-            title: "설정";
+            title: "Settings";
             activated => {
                 root.open-settings();
             }
         }
         MenuItem {
-            title: "번역창 열기";
+            title: "Open translation";
             activated => {
                 root.open-translate();
             }
         }
         MenuSeparator {}
         MenuItem {
-            title: "종료";
+            title: "Quit";
             activated => {
                 root.quit();
             }
@@ -166,7 +164,7 @@ export component AppTray inherits SystemTrayIcon {
 }
 
 export component SettingsWindow inherits Window {
-    title: "설정";
+    title: "Settings";
     icon: @image-url("../assets/icon-256.png");
     default-font-size: 14px;
     width: 460px;
@@ -175,17 +173,17 @@ export component SettingsWindow inherits Window {
     in-out property <int> provider-index: 0;
     in-out property <string> deepl-key;
     in-out property <bool> deepl-connected: false;
-    in-out property <string> deepl-status-prefix: "연결됨 · 남은 글자 수 ";
+    in-out property <string> deepl-status-prefix: "Connected · characters left ";
     in-out property <string> deepl-remaining: "";
     in-out property <string> deepl-limit: "";
     in-out property <float> deepl-progress: 0;
     in-out property <string> deepl-message: "";
-    in-out property <string> deepl-hint: "키를 입력한 뒤 연결 테스트를 눌러 주세요.";
+    in-out property <string> deepl-hint: "Enter a key, then test the connection.";
     in-out property <bool> deepl-testing: false;
 
     in-out property <string> azure-key;
     in-out property <bool> azure-connected: false;
-    in-out property <string> azure-status-prefix: "연결됨 · 이번 달 남은 글자 수 ";
+    in-out property <string> azure-status-prefix: "Connected · characters left this month ";
     in-out property <string> azure-remaining: "";
     in-out property <string> azure-limit: "";
     in-out property <float> azure-progress: 0;
@@ -197,7 +195,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> fallback: false;
     in-out property <string> hotkey-label: "Ctrl + Alt + T";
     in-out property <string> hotkey-id: "ctrl+alt+t";
-    in-out property <string> hotkey-hint: "칸을 클릭한 뒤 새 조합을 누르면 변경됩니다.";
+    in-out property <string> hotkey-hint: "Click the field, then press the new shortcut.";
     in-out property <bool> recording: false;
 
     in-out property <[string]> language-labels;
@@ -231,7 +229,7 @@ export component SettingsWindow inherits Window {
             padding-left: 24px;
             padding-right: 24px;
             Text {
-                text: "설정";
+                text: "Settings";
                 font-size: 28px;
                 font-weight: FontWeight.semi-bold;
                 color: Palette.foreground;
@@ -246,7 +244,7 @@ export component SettingsWindow inherits Window {
 
                     VerticalLayout {
                         spacing: 8px;
-                        FieldLabel { text: "기본 번역 서비스"; }
+                        FieldLabel { text: "Default translation service"; }
                         ComboBox {
                             model: ["DeepL", "Microsoft Azure Translator"];
                             current-index <=> root.provider-index;
@@ -259,12 +257,12 @@ export component SettingsWindow inherits Window {
                     VerticalLayout {
                         spacing: 10px;
                         Card {
-                            FieldLabel { text: "DeepL API 키"; }
+                            FieldLabel { text: "DeepL API key"; }
                             HorizontalLayout {
                                 spacing: 8px;
                                 LineEdit {
                                     horizontal-stretch: 1;
-                                    placeholder-text: "API 키를 입력하세요 (:fx)";
+                                    placeholder-text: "Enter an API key (:fx)";
                                     input-type: password;
                                     text <=> root.deepl-key;
                                     edited => {
@@ -272,7 +270,7 @@ export component SettingsWindow inherits Window {
                                     }
                                 }
                                 Button {
-                                    text: "연결 테스트";
+                                    text: "Test connection";
                                     enabled: !root.deepl-testing;
                                     clicked => {
                                         root.test-deepl();
@@ -298,12 +296,12 @@ export component SettingsWindow inherits Window {
                         }
 
                         Card {
-                            FieldLabel { text: "Azure Translator 키"; }
+                            FieldLabel { text: "Azure Translator key"; }
                             HorizontalLayout {
                                 spacing: 8px;
                                 LineEdit {
                                     horizontal-stretch: 1;
-                                    placeholder-text: "Azure 구독 키";
+                                    placeholder-text: "Azure subscription key";
                                     input-type: password;
                                     text <=> root.azure-key;
                                     edited => {
@@ -311,14 +309,14 @@ export component SettingsWindow inherits Window {
                                     }
                                 }
                                 Button {
-                                    text: "연결 테스트";
+                                    text: "Test connection";
                                     enabled: !root.azure-testing;
                                     clicked => {
                                         root.test-azure();
                                     }
                                 }
                             }
-                            FieldLabel { text: "Azure 지역"; }
+                            FieldLabel { text: "Azure region"; }
                             ComboBox {
                                 model: root.region-labels;
                                 current-index <=> root.region-index;
@@ -338,18 +336,18 @@ export component SettingsWindow inherits Window {
                             if root.azure-connected: ProgressIndicator {
                                 progress: root.azure-progress;
                             }
-                            Hint { text: "Azure Translator F0 무료 등급 · 매달 200만 자"; }
+                            Hint { text: "Azure Translator F0 free tier · 2 million characters per month"; }
                         }
                     }
 
                     CheckBox {
-                        text: "DeepL 소진 시 Azure로 자동 전환";
+                        text: "Fall back to Azure when DeepL is exhausted";
                         checked <=> root.fallback;
                     }
 
                     VerticalLayout {
                         spacing: 8px;
-                        FieldLabel { text: "단축키"; }
+                        FieldLabel { text: "Shortcut"; }
                         HotkeyCapture {
                             recording <=> root.recording;
                             label <=> root.hotkey-label;
@@ -368,27 +366,27 @@ export component SettingsWindow inherits Window {
                         VerticalLayout {
                             spacing: 8px;
                             horizontal-stretch: 1;
-                            FieldLabel { text: "언어 1"; }
+                            FieldLabel { text: "Language 1"; }
                             ComboBox {
                                 model: root.language-labels;
                                 current-index <=> root.lang1-index;
                             }
-                            Hint { text: "기본 번역 대상"; }
+                            Hint { text: "Default translation target"; }
                         }
                         VerticalLayout {
                             spacing: 8px;
                             horizontal-stretch: 1;
-                            FieldLabel { text: "언어 2"; }
+                            FieldLabel { text: "Language 2"; }
                             ComboBox {
                                 model: root.language-labels;
                                 current-index <=> root.lang2-index;
                             }
-                            Hint { text: "언어 1로 된 글을 번역할 때"; }
+                            Hint { text: "Used when the text is already in language 1"; }
                         }
                     }
 
                     Switch {
-                        text: "윈도우 시작 시 자동 실행";
+                        text: "Start automatically with Windows";
                         checked <=> root.autostart;
                     }
                 }
@@ -412,13 +410,13 @@ export component SettingsWindow inherits Window {
                 spacing: 8px;
                 alignment: end;
                 Button {
-                    text: "취소";
+                    text: "Cancel";
                     clicked => {
                         root.cancel();
                     }
                 }
                 Button {
-                    text: "저장";
+                    text: "Save";
                     primary: true;
                     clicked => {
                         root.save();
@@ -430,14 +428,15 @@ export component SettingsWindow inherits Window {
 }
 
 export component TranslateWindow inherits Window {
-    title: "번역";
+    title: "Translate";
     icon: @image-url("../assets/icon-256.png");
     default-font-size: 14px;
     always-on-top: true;
+    // Fixed once the mode is set, before the window is shown.
     width: root.mode == PopupMode.result ? 520px : 400px;
     height: root.mode == PopupMode.result ? 480px : 260px;
 
-    in-out property <PopupMode> mode: loading;
+    in-out property <PopupMode> mode: result;
     in-out property <string> source-text;
     in-out property <string> translated-text;
     in-out property <string> detected-label;
@@ -448,7 +447,7 @@ export component TranslateWindow inherits Window {
     in-out property <bool> show-retry-button: false;
     in-out property <[string]> language-labels;
     in-out property <int> target-index: 0;
-    in-out property <string> copy-label: "복사";
+    in-out property <string> copy-label: "Copy";
     in-out property <bool> busy: false;
 
     callback target-changed(string);
@@ -494,12 +493,22 @@ export component TranslateWindow inherits Window {
 
                 HorizontalLayout {
                     spacing: 8px;
-                    alignment: center;
-                    FieldLabel { text: "원문"; }
-                    Rectangle { horizontal-stretch: 1; }
+                    height: 32px;
+                    cross-axis-alignment: center;
+                    Text {
+                        text: "Source";
+                        font-size: 14px;
+                        font-weight: FontWeight.semi-bold;
+                        vertical-alignment: center;
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 1px;
+                    }
                     Text {
                         text: root.detected-label;
                         font-size: 12px;
+                        vertical-alignment: center;
                         color: Palette.foreground.with-alpha(0.6);
                     }
                 }
@@ -513,14 +522,24 @@ export component TranslateWindow inherits Window {
 
                 HorizontalLayout {
                     spacing: 8px;
-                    alignment: center;
-                    FieldLabel { text: "번역문"; }
-                    Rectangle { horizontal-stretch: 1; }
+                    height: 32px;
+                    cross-axis-alignment: center;
+                    Text {
+                        text: "Translation";
+                        font-size: 14px;
+                        font-weight: FontWeight.semi-bold;
+                        vertical-alignment: center;
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 1px;
+                    }
                     ComboBox {
                         model: root.language-labels;
                         current-index: root.target-index;
                         enabled: !root.busy;
-                        preferred-width: 160px;
+                        // Fixed width so changing the language name does not reflow the row.
+                        width: 180px;
                         selected(value) => {
                             root.target-changed(value);
                         }
@@ -553,7 +572,7 @@ export component TranslateWindow inherits Window {
                     }
                     Rectangle { horizontal-stretch: 1; }
                     Text {
-                        text: "Esc로 닫기";
+                        text: "Esc to close";
                         font-size: 12px;
                         color: Palette.foreground.with-alpha(0.45);
                     }
@@ -568,7 +587,6 @@ export component TranslateWindow inherits Window {
                 padding-right: 16px;
                 vertical-stretch: 1;
 
-                if root.mode == PopupMode.loading: Spinner {}
                 Text {
                     text: root.error-title;
                     font-size: 14px;
@@ -585,14 +603,14 @@ export component TranslateWindow inherits Window {
                     width: 340px;
                 }
                 if root.show-settings-button: Button {
-                    text: "설정 열기";
+                    text: "Open settings";
                     primary: true;
                     clicked => {
                         root.open-settings();
                     }
                 }
                 if root.show-retry-button: Button {
-                    text: "다시 시도";
+                    text: "Try again";
                     primary: true;
                     clicked => {
                         root.retry();

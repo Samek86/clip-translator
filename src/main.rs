@@ -10,7 +10,7 @@ fn main() {
     }
     #[cfg(not(windows))]
     {
-        eprintln!("clip-translator는 Windows 10/11 전용 프로그램입니다.");
+        eprintln!("clip-translator runs only on Windows 10 and 11.");
         std::process::exit(1);
     }
 }

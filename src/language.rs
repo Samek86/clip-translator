@@ -60,47 +60,25 @@ impl LanguageId {
         }
     }
 
-    /// Name shown in the language combo. Matches the approved mockup.
+    /// English name shown in language lists and in "Japanese detected".
     pub fn endonym(self) -> &'static str {
         match self {
-            Self::Ko => "한국어",
-            Self::Ja => "日本語",
+            Self::Ko => "Korean",
+            Self::Ja => "Japanese",
             Self::En => "English",
-            Self::ZhHans => "中文 (简体)",
-            Self::ZhHant => "中文 (繁體)",
-            Self::Es => "Español",
-            Self::Fr => "Français",
-            Self::De => "Deutsch",
-            Self::Pt => "Português",
-            Self::It => "Italiano",
-            Self::Ru => "Русский",
-            Self::Nl => "Nederlands",
-            Self::Pl => "Polski",
-            Self::Indonesian => "Bahasa Indonesia",
-            Self::Tr => "Türkçe",
-            Self::Ar => "العربية",
-        }
-    }
-
-    /// Korean name used in "일본어 감지".
-    pub fn korean_name(self) -> &'static str {
-        match self {
-            Self::Ko => "한국어",
-            Self::Ja => "일본어",
-            Self::En => "영어",
-            Self::ZhHans => "중국어",
-            Self::ZhHant => "중국어(번체)",
-            Self::Es => "스페인어",
-            Self::Fr => "프랑스어",
-            Self::De => "독일어",
-            Self::Pt => "포르투갈어",
-            Self::It => "이탈리아어",
-            Self::Ru => "러시아어",
-            Self::Nl => "네덜란드어",
-            Self::Pl => "폴란드어",
-            Self::Indonesian => "인도네시아어",
-            Self::Tr => "튀르키예어",
-            Self::Ar => "아랍어",
+            Self::ZhHans => "Chinese (Simplified)",
+            Self::ZhHant => "Chinese (Traditional)",
+            Self::Es => "Spanish",
+            Self::Fr => "French",
+            Self::De => "German",
+            Self::Pt => "Portuguese",
+            Self::It => "Italian",
+            Self::Ru => "Russian",
+            Self::Nl => "Dutch",
+            Self::Pl => "Polish",
+            Self::Indonesian => "Indonesian",
+            Self::Tr => "Turkish",
+            Self::Ar => "Arabic",
         }
     }
 

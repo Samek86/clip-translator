@@ -21,12 +21,13 @@ use windows::Win32::System::Threading::{
     AttachThreadInput, CreateEventW, CreateMutexW, GetCurrentThreadId, OpenEventW, SetEvent,
     WaitForSingleObject, EVENT_MODIFY_STATE, INFINITE,
 };
+use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetForegroundWindow, GetWindowLongPtrW, GetWindowThreadProcessId, MessageBoxW,
     SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE,
     HWND_TOP, MB_ICONERROR, MB_OK, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SW_HIDE, SW_SHOW, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX,
+    SWP_NOZORDER, SW_SHOW, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX,
     WS_MINIMIZEBOX,
 };
 use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE};
@@ -58,7 +59,7 @@ pub fn init_log(dir: &std::path::Path) {
         }
     }
     let _ = LOG_PATH.set(path);
-    log("시작");
+    log("started");
 }
 
 pub fn log(message: &str) {
@@ -76,7 +77,7 @@ pub fn error_box(text: &str) {
         let _ = MessageBoxW(
             None,
             &windows::core::HSTRING::from(text),
-            &windows::core::HSTRING::from("클립 번역"),
+            &windows::core::HSTRING::from("Clip Translator"),
             MB_OK | MB_ICONERROR,
         );
     }
@@ -102,7 +103,7 @@ pub fn claim_single_instance() -> Result<bool, String> {
         }
         if wait != WAIT_OBJECT_0 && wait != WAIT_ABANDONED {
             let _ = CloseHandle(mutex);
-            return Err(format!("단일 인스턴스 확인에 실패했습니다 ({wait:?})"));
+            return Err(format!("Could not check the single instance ({wait:?})"));
         }
         let event = CreateEventW(None, false, false, w!("Local\\clip-translator-activate"))
             .map_err(|err| err.to_string())?;
@@ -269,6 +270,38 @@ pub struct WorkArea {
     pub y: i32,
     pub width: i32,
     pub height: i32,
+    pub scale: f32,
+}
+
+/// Size and center the window before it is shown, so the first frame is final.
+pub fn place_before_show(window: &slint::Window, logical_w: f32, logical_h: f32) {
+    window.set_size(slint::LogicalSize::new(logical_w, logical_h));
+    let Some(area) = cursor_work_area() else {
+        return;
+    };
+    let width = (logical_w * area.scale).round() as i32;
+    let height = (logical_h * area.scale).round() as i32;
+    let mut x = area.x + (area.width - width) / 2;
+    let mut y = area.y + (area.height - height) / 2;
+    if x < area.x {
+        x = area.x;
+    }
+    if y < area.y {
+        y = area.y;
+    }
+    if width < area.width {
+        let max_x = area.x + area.width - width;
+        if x > max_x {
+            x = max_x;
+        }
+    }
+    if height < area.height {
+        let max_y = area.y + area.height - height;
+        if y > max_y {
+            y = max_y;
+        }
+    }
+    window.set_position(slint::PhysicalPosition::new(x, y));
 }
 
 pub fn cursor_work_area() -> Option<WorkArea> {
@@ -301,6 +334,8 @@ pub fn tune_frame(window: &slint::Window, style: FrameStyle) {
             frame &= !(WS_MINIMIZEBOX.0 as isize);
         }
         SetWindowLongPtrW(hwnd, GWL_STYLE, frame);
+        // Do not hide or move the window. SWP_NOMOVE | SWP_NOSIZE keeps the
+        // position chosen before show().
         let _ = SetWindowPos(
             hwnd,
             Some(HWND_TOP),
@@ -310,39 +345,7 @@ pub fn tune_frame(window: &slint::Window, style: FrameStyle) {
             0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE,
         );
-        let _ = ShowWindow(hwnd, SW_HIDE);
-        let _ = ShowWindow(hwnd, SW_SHOW);
     }
-}
-
-pub fn center_on_cursor(window: &slint::Window) {
-    let Some(area) = cursor_work_area() else {
-        return;
-    };
-    let size = window.size();
-    let width = size.width as i32;
-    let height = size.height as i32;
-    let mut x = area.x + (area.width - width) / 2;
-    let mut y = area.y + (area.height - height) / 2;
-    if x < area.x {
-        x = area.x;
-    }
-    if y < area.y {
-        y = area.y;
-    }
-    if width < area.width {
-        let max_x = area.x + area.width - width;
-        if x > max_x {
-            x = max_x;
-        }
-    }
-    if height < area.height {
-        let max_y = area.y + area.height - height;
-        if y > max_y {
-            y = max_y;
-        }
-    }
-    window.set_position(slint::PhysicalPosition::new(x, y));
 }
 
 pub fn focus_window(window: &slint::Window) {
@@ -382,17 +385,30 @@ fn monitor_work_area(monitor: windows::Win32::Graphics::Gdi::HMONITOR) -> Option
         if !GetMonitorInfoW(monitor, &mut info).as_bool() {
             return None;
         }
-        Some(rect_area(info.rcWork))
+        Some(rect_area(info.rcWork, monitor_scale(monitor)))
     }
 }
 
-fn rect_area(rect: RECT) -> WorkArea {
+fn rect_area(rect: RECT, scale: f32) -> WorkArea {
     WorkArea {
         x: rect.left,
         y: rect.top,
         width: rect.right - rect.left,
         height: rect.bottom - rect.top,
+        scale,
     }
+}
+
+fn monitor_scale(monitor: windows::Win32::Graphics::Gdi::HMONITOR) -> f32 {
+    unsafe {
+        let mut dpi_x = 0u32;
+        let mut dpi_y = 0u32;
+        if GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y).is_ok() && dpi_x > 0
+        {
+            return dpi_x as f32 / 96.0;
+        }
+    }
+    1.0
 }
 
 fn handle_bits(handle: HANDLE) -> isize {

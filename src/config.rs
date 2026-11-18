@@ -101,7 +101,7 @@ pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {
     }
     let body = toml::to_string_pretty(config).map_err(|err| err.to_string())?;
     let text =
-        format!("# clip-translator 설정. API 키는 secrets.bin에 암호화되어 있습니다.\n{body}");
+        format!("# clip-translator settings. API keys are encrypted in secrets.bin.\n{body}");
     let tmp = path.with_extension("toml.tmp");
     fs::write(&tmp, text).map_err(|err| err.to_string())?;
     if path.exists() {
@@ -150,7 +150,7 @@ mod tests {
         let text = fs::read_to_string(&path).unwrap();
         assert!(!text.contains("deepl_key"));
         assert!(!text.contains("azure_key"));
-        assert!(text.contains("secrets.bin"));
+        assert!(text.contains("encrypted in secrets.bin"));
         assert!(text.contains("fallback_to_azure = true"));
         let loaded = load_config(&path).unwrap();
         assert_eq!(loaded.hotkey, config.hotkey);
