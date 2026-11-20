@@ -1,0 +1,647 @@
+import {
+    Button,
+    CheckBox,
+    ComboBox,
+    LineEdit,
+    Palette,
+    ProgressIndicator,
+    ScrollView,
+    Switch,
+    TextEdit,
+} from "std-widgets.slint";
+
+export enum PopupMode {
+    result,
+    no-key,
+    quota,
+    empty,
+    not-text,
+    network,
+    failed,
+    too-long,
+}
+
+component FieldLabel inherits Text {
+    font-size: 14px;
+    font-weight: FontWeight.semi-bold;
+    color: Palette.foreground;
+}
+
+component Hint inherits Text {
+    font-size: 12px;
+    wrap: word-wrap;
+    color: Palette.foreground.with-alpha(0.45);
+}
+
+component Secondary inherits Text {
+    font-size: 12px;
+    color: Palette.foreground.with-alpha(0.6);
+}
+
+component Card inherits Rectangle {
+    background: Palette.foreground.with-alpha(0.04);
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: Palette.foreground.with-alpha(0.08);
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        @children
+    }
+}
+
+component HotkeyCapture inherits FocusScope {
+    in-out property <bool> recording: false;
+    in-out property <string> label: "Ctrl + Alt + T";
+    callback captured(string, bool, bool, bool, bool);
+    callback recording-changed(bool);
+
+    horizontal-stretch: 1;
+    height: 32px;
+
+    key-pressed(event) => {
+        if !root.recording {
+            return reject;
+        }
+        if event.text == Key.Escape {
+            root.recording = false;
+            root.recording-changed(false);
+            return accept;
+        }
+        root.captured(
+            event.text,
+            event.modifiers.control,
+            event.modifiers.alt,
+            event.modifiers.shift,
+            event.modifiers.meta,
+        );
+        return accept;
+    }
+
+    changed has-focus => {
+        if !root.has-focus && root.recording {
+            root.recording = false;
+            root.recording-changed(false);
+        }
+    }
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 4px;
+        background: root.recording ? Palette.background : Palette.control-background;
+        border-width: 1px;
+        border-color: root.recording ? Palette.accent-background : Palette.border;
+
+        TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => {
+                root.recording = true;
+                root.recording-changed(true);
+                root.focus();
+            }
+        }
+
+        Text {
+            x: 12px;
+            y: (parent.height - self.height) / 2;
+            text: root.recording ? "Press a new shortcut…" : root.label;
+            color: root.recording ? Palette.foreground.with-alpha(0.6) : Palette.foreground;
+        }
+
+        if root.recording: Rectangle {
+            x: 4px;
+            y: parent.height - 2px;
+            width: parent.width - 8px;
+            height: 2px;
+            background: Palette.accent-background;
+        }
+    }
+}
+
+export component AppTray inherits SystemTrayIcon {
+    in-out property <string> hotkey-compact: "Ctrl+Alt+T";
+    // Rust inserts a tab so the shortcut sits on the right. Slint strings have no \t.
+    in-out property <string> hotkey-title: "Hotkey    Ctrl+Alt+T";
+    // Set from Rust with CARGO_PKG_VERSION before the icon is shown.
+    in-out property <string> tooltip-text: "Clip Translator";
+    icon: @image-url("../assets/tray-64.png");
+    tooltip: root.tooltip-text;
+    callback open-settings();
+    callback open-translate();
+    callback quit();
+
+    clicked => {
+        root.open-translate();
+    }
+
+    Menu {
+        MenuItem {
+            // A tab is the native-menu convention for a right-aligned shortcut.
+            title: root.hotkey-title;
+            enabled: false;
+        }
+        MenuSeparator {}
+        MenuItem {
+            title: "Settings";
+            activated => {
+                root.open-settings();
+            }
+        }
+        MenuItem {
+            title: "Open translation";
+            activated => {
+                root.open-translate();
+            }
+        }
+        MenuSeparator {}
+        MenuItem {
+            title: "Quit";
+            activated => {
+                root.quit();
+            }
+        }
+    }
+}
+
+export component SettingsWindow inherits Window {
+    title: "Settings";
+    icon: @image-url("../assets/icon-256.png");
+    default-font-size: 14px;
+    width: 460px;
+    height: 680px;
+
+    in-out property <int> provider-index: 0;
+    in-out property <string> deepl-key;
+    in-out property <bool> deepl-connected: false;
+    in-out property <string> deepl-status-prefix: "Connected · characters left ";
+    in-out property <string> deepl-remaining: "";
+    in-out property <string> deepl-limit: "";
+    in-out property <float> deepl-progress: 0;
+    in-out property <string> deepl-message: "";
+    in-out property <string> deepl-hint: "Enter a key, then test the connection.";
+    in-out property <bool> deepl-testing: false;
+
+    in-out property <string> azure-key;
+    in-out property <bool> azure-connected: false;
+    in-out property <string> azure-status-prefix: "Connected · characters left this month ";
+    in-out property <string> azure-remaining: "";
+    in-out property <string> azure-limit: "";
+    in-out property <float> azure-progress: 0;
+    in-out property <string> azure-message: "";
+    in-out property <bool> azure-testing: false;
+    in-out property <[string]> region-labels;
+    in-out property <int> region-index: 0;
+
+    in-out property <bool> fallback: false;
+    in-out property <string> hotkey-label: "Ctrl + Alt + T";
+    in-out property <string> hotkey-id: "ctrl+alt+t";
+    in-out property <string> hotkey-hint: "Click the field, then press the new shortcut.";
+    in-out property <bool> recording: false;
+
+    in-out property <[string]> language-labels;
+    in-out property <int> lang1-index: 0;
+    in-out property <int> lang2-index: 1;
+    in-out property <bool> autostart: false;
+    in-out property <string> save-error: "";
+    // "Version 0.1.0", built in Rust from CARGO_PKG_VERSION.
+    in-out property <string> version-line: "";
+    // Fluent ScrollView paints its vertical bar on top of the viewport.
+    // Leave this strip empty so the cards stay clear of it.
+    property <length> scroll-gutter: 14px;
+
+    callback test-deepl();
+    callback test-azure();
+    callback save();
+    callback cancel();
+    callback deepl-edited();
+    callback azure-edited();
+    callback provider-changed();
+    callback hotkey-captured(string, bool, bool, bool, bool);
+    callback hotkey-recording(bool);
+
+    public function apply-theme(dark: bool) {
+        if dark {
+            Palette.color-scheme = ColorScheme.dark;
+        } else {
+            Palette.color-scheme = ColorScheme.light;
+        }
+    }
+
+    Rectangle {
+        background: Palette.background;
+        VerticalLayout {
+            padding-top: 12px;
+            padding-left: 24px;
+            // The scrollbar sits in the right-hand part of the 24px margin.
+            padding-right: 24px - root.scroll-gutter;
+            Text {
+                text: "Settings";
+                font-size: 28px;
+                font-weight: FontWeight.semi-bold;
+                color: Palette.foreground;
+            }
+
+            ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    width: parent.width;
+                    padding-top: 16px;
+                    padding-bottom: 8px;
+                    padding-right: root.scroll-gutter;
+                    spacing: 16px;
+
+                    VerticalLayout {
+                        spacing: 8px;
+                        FieldLabel { text: "Default translation service"; }
+                        ComboBox {
+                            model: ["DeepL", "Microsoft Azure Translator"];
+                            current-index <=> root.provider-index;
+                            selected(_) => {
+                                root.provider-changed();
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 10px;
+                        Card {
+                            FieldLabel { text: "DeepL API key"; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                LineEdit {
+                                    horizontal-stretch: 1;
+                                    placeholder-text: "Enter an API key (:fx)";
+                                    input-type: password;
+                                    text <=> root.deepl-key;
+                                    edited => {
+                                        root.deepl-edited();
+                                    }
+                                }
+                                Button {
+                                    text: "Test connection";
+                                    enabled: !root.deepl-testing;
+                                    clicked => {
+                                        root.test-deepl();
+                                    }
+                                }
+                            }
+                            if root.deepl-connected: HorizontalLayout {
+                                spacing: 0px;
+                                Secondary { text: root.deepl-status-prefix; }
+                                Text {
+                                    text: root.deepl-remaining;
+                                    font-size: 12px;
+                                    font-weight: FontWeight.semi-bold;
+                                    color: Palette.foreground;
+                                }
+                                Secondary { text: " / " + root.deepl-limit; }
+                            }
+                            if root.deepl-message != "": Secondary { text: root.deepl-message; }
+                            if root.deepl-connected: ProgressIndicator {
+                                progress: root.deepl-progress;
+                            }
+                            Hint { text: root.deepl-hint; }
+                        }
+
+                        Card {
+                            FieldLabel { text: "Azure Translator key"; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                LineEdit {
+                                    horizontal-stretch: 1;
+                                    placeholder-text: "Azure subscription key";
+                                    input-type: password;
+                                    text <=> root.azure-key;
+                                    edited => {
+                                        root.azure-edited();
+                                    }
+                                }
+                                Button {
+                                    text: "Test connection";
+                                    enabled: !root.azure-testing;
+                                    clicked => {
+                                        root.test-azure();
+                                    }
+                                }
+                            }
+                            FieldLabel { text: "Azure region"; }
+                            ComboBox {
+                                model: root.region-labels;
+                                current-index <=> root.region-index;
+                            }
+                            if root.azure-connected: HorizontalLayout {
+                                spacing: 0px;
+                                Secondary { text: root.azure-status-prefix; }
+                                Text {
+                                    text: root.azure-remaining;
+                                    font-size: 12px;
+                                    font-weight: FontWeight.semi-bold;
+                                    color: Palette.foreground;
+                                }
+                                Secondary { text: " / " + root.azure-limit; }
+                            }
+                            if root.azure-message != "": Secondary { text: root.azure-message; }
+                            if root.azure-connected: ProgressIndicator {
+                                progress: root.azure-progress;
+                            }
+                            Hint { text: "Azure Translator F0 free tier · 2 million characters per month"; }
+                        }
+                    }
+
+                    CheckBox {
+                        text: "Fall back to Azure when DeepL is exhausted";
+                        checked <=> root.fallback;
+                    }
+
+                    VerticalLayout {
+                        spacing: 8px;
+                        FieldLabel { text: "Shortcut"; }
+                        HotkeyCapture {
+                            recording <=> root.recording;
+                            label <=> root.hotkey-label;
+                            captured(key, ctrl, alt, shift, win) => {
+                                root.hotkey-captured(key, ctrl, alt, shift, win);
+                            }
+                            recording-changed(active) => {
+                                root.hotkey-recording(active);
+                            }
+                        }
+                        Hint { text: root.hotkey-hint; }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        VerticalLayout {
+                            spacing: 8px;
+                            horizontal-stretch: 1;
+                            FieldLabel { text: "Language 1"; }
+                            ComboBox {
+                                model: root.language-labels;
+                                current-index <=> root.lang1-index;
+                            }
+                            Hint { text: "Default translation target"; }
+                        }
+                        VerticalLayout {
+                            spacing: 8px;
+                            horizontal-stretch: 1;
+                            FieldLabel { text: "Language 2"; }
+                            ComboBox {
+                                model: root.language-labels;
+                                current-index <=> root.lang2-index;
+                            }
+                            Hint { text: "Used when the text is already in language 1"; }
+                        }
+                    }
+
+                    Switch {
+                        text: "Start automatically with Windows";
+                        checked <=> root.autostart;
+                    }
+                }
+            }
+
+            if root.save-error != "": HorizontalLayout {
+                padding-right: root.scroll-gutter;
+                Text {
+                    text: root.save-error;
+                    font-size: 12px;
+                    color: #C42B1C;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
+                }
+            }
+
+            HorizontalLayout {
+                padding-right: root.scroll-gutter;
+                Rectangle {
+                    height: 1px;
+                    horizontal-stretch: 1;
+                    background: Palette.foreground.with-alpha(0.08);
+                }
+            }
+
+            HorizontalLayout {
+                padding-top: 16px;
+                padding-bottom: 20px;
+                padding-right: root.scroll-gutter;
+                spacing: 8px;
+                Text {
+                    text: root.version-line;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    color: Palette.foreground.with-alpha(0.45);
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Button {
+                    text: "Cancel";
+                    clicked => {
+                        root.cancel();
+                    }
+                }
+                Button {
+                    text: "Save";
+                    primary: true;
+                    clicked => {
+                        root.save();
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component TranslateWindow inherits Window {
+    title: "Translate";
+    icon: @image-url("../assets/icon-256.png");
+    default-font-size: 14px;
+    always-on-top: true;
+    // Fixed once the mode is set, before the window is shown.
+    width: root.mode == PopupMode.result ? 520px : 400px;
+    height: root.mode == PopupMode.result ? 480px : 260px;
+
+    in-out property <PopupMode> mode: result;
+    in-out property <string> source-text;
+    in-out property <string> translated-text;
+    in-out property <string> detected-label;
+    in-out property <string> provider-note;
+    in-out property <string> error-title;
+    in-out property <string> error-detail;
+    in-out property <bool> show-settings-button: false;
+    in-out property <bool> show-retry-button: false;
+    in-out property <[string]> language-labels;
+    in-out property <int> target-index: 0;
+    in-out property <string> copy-label: "Copy";
+    in-out property <bool> busy: false;
+
+    callback target-changed(string);
+    callback copy-clicked();
+    callback open-settings();
+    callback retry();
+    callback close-popup();
+
+    public function apply-theme(dark: bool) {
+        if dark {
+            Palette.color-scheme = ColorScheme.dark;
+        } else {
+            Palette.color-scheme = ColorScheme.light;
+        }
+    }
+
+    public function focus-popup() {
+        focus-scope.focus();
+    }
+
+    focus-scope := FocusScope {
+        width: 100%;
+        height: 100%;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.close-popup();
+                return accept;
+            }
+            reject
+        }
+
+        Rectangle {
+            background: Palette.background;
+            width: 100%;
+            height: 100%;
+
+            if root.mode == PopupMode.result: VerticalLayout {
+                padding: 12px;
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-bottom: 16px;
+                spacing: 8px;
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    height: 32px;
+                    cross-axis-alignment: center;
+                    Text {
+                        text: "Source";
+                        font-size: 14px;
+                        font-weight: FontWeight.semi-bold;
+                        vertical-alignment: center;
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 1px;
+                    }
+                    Text {
+                        text: root.detected-label;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        color: Palette.foreground.with-alpha(0.6);
+                    }
+                }
+                TextEdit {
+                    text: root.source-text;
+                    read-only: true;
+                    wrap: word-wrap;
+                    min-height: 88px;
+                    vertical-stretch: 1;
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    height: 32px;
+                    cross-axis-alignment: center;
+                    Text {
+                        text: "Translation";
+                        font-size: 14px;
+                        font-weight: FontWeight.semi-bold;
+                        vertical-alignment: center;
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 1px;
+                    }
+                    ComboBox {
+                        model: root.language-labels;
+                        current-index: root.target-index;
+                        enabled: !root.busy;
+                        // Fixed width so changing the language name does not reflow the row.
+                        width: 180px;
+                        selected(value) => {
+                            root.target-changed(value);
+                        }
+                    }
+                    Button {
+                        text: root.copy-label;
+                        enabled: !root.busy && root.translated-text != "";
+                        clicked => {
+                            root.copy-clicked();
+                        }
+                    }
+                }
+                TextEdit {
+                    text: root.translated-text;
+                    read-only: true;
+                    wrap: word-wrap;
+                    min-height: 88px;
+                    vertical-stretch: 1;
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: center;
+                    padding-top: 4px;
+                    Text {
+                        text: root.provider-note;
+                        font-size: 12px;
+                        color: Palette.foreground.with-alpha(0.45);
+                        vertical-stretch: 0;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    Text {
+                        text: "Esc to close";
+                        font-size: 12px;
+                        color: Palette.foreground.with-alpha(0.45);
+                    }
+                }
+            }
+
+            if root.mode != PopupMode.result: VerticalLayout {
+                alignment: center;
+                spacing: 12px;
+                padding: 28px;
+                padding-left: 16px;
+                padding-right: 16px;
+                vertical-stretch: 1;
+
+                Text {
+                    text: root.error-title;
+                    font-size: 14px;
+                    font-weight: FontWeight.semi-bold;
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: root.error-detail;
+                    font-size: 14px;
+                    color: Palette.foreground.with-alpha(0.6);
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                    width: 340px;
+                }
+                if root.show-settings-button: Button {
+                    text: "Open settings";
+                    primary: true;
+                    clicked => {
+                        root.open-settings();
+                    }
+                }
+                if root.show-retry-button: Button {
+                    text: "Try again";
+                    primary: true;
+                    clicked => {
+                        root.retry();
+                    }
+                }
+            }
+        }
+    }
+}
