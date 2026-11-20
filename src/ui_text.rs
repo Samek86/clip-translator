@@ -19,6 +19,18 @@ pub const COPY_LABEL: &str = "Copy";
 pub const COPIED_LABEL: &str = "Copied";
 pub const COPY_FAILED: &str = "Copy failed";
 
+pub fn package_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+pub fn settings_version_line() -> String {
+    format!("Version {}", package_version())
+}
+
+pub fn tray_tooltip() -> String {
+    format!("Clip Translator {}", package_version())
+}
+
 pub fn format_grouped(value: u64) -> String {
     let digits = value.to_string();
     let mut out = String::new();
@@ -259,6 +271,21 @@ mod tests {
             deepl_hint("pro-key", ProviderKind::Deepl, true),
             "DeepL API · api.deepl.com"
         );
+    }
+
+    #[test]
+    fn version_line_and_tray_tooltip_use_the_package_version() {
+        assert_eq!(package_version(), env!("CARGO_PKG_VERSION"));
+        assert_eq!(
+            settings_version_line(),
+            format!("Version {}", env!("CARGO_PKG_VERSION"))
+        );
+        assert_eq!(
+            tray_tooltip(),
+            format!("Clip Translator {}", env!("CARGO_PKG_VERSION"))
+        );
+        assert_eq!(settings_version_line(), "Version 0.1.0");
+        assert_eq!(tray_tooltip(), "Clip Translator 0.1.0");
     }
 
     #[test]

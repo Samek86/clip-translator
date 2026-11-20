@@ -124,8 +124,10 @@ export component AppTray inherits SystemTrayIcon {
     in-out property <string> hotkey-compact: "Ctrl+Alt+T";
     // Rust inserts a tab so the shortcut sits on the right. Slint strings have no \t.
     in-out property <string> hotkey-title: "Hotkey    Ctrl+Alt+T";
+    // Set from Rust with CARGO_PKG_VERSION before the icon is shown.
+    in-out property <string> tooltip-text: "Clip Translator";
     icon: @image-url("../assets/tray-64.png");
-    tooltip: "Clip Translator";
+    tooltip: root.tooltip-text;
     callback open-settings();
     callback open-translate();
     callback quit();
@@ -203,6 +205,11 @@ export component SettingsWindow inherits Window {
     in-out property <int> lang2-index: 1;
     in-out property <bool> autostart: false;
     in-out property <string> save-error: "";
+    // "Version 0.1.0", built in Rust from CARGO_PKG_VERSION.
+    in-out property <string> version-line: "";
+    // Fluent ScrollView paints its vertical bar on top of the viewport.
+    // Leave this strip empty so the cards stay clear of it.
+    property <length> scroll-gutter: 14px;
 
     callback test-deepl();
     callback test-azure();
@@ -227,7 +234,8 @@ export component SettingsWindow inherits Window {
         VerticalLayout {
             padding-top: 12px;
             padding-left: 24px;
-            padding-right: 24px;
+            // The scrollbar sits in the right-hand part of the 24px margin.
+            padding-right: 24px - root.scroll-gutter;
             Text {
                 text: "Settings";
                 font-size: 28px;
@@ -238,8 +246,10 @@ export component SettingsWindow inherits Window {
             ScrollView {
                 vertical-stretch: 1;
                 VerticalLayout {
+                    width: parent.width;
                     padding-top: 16px;
                     padding-bottom: 8px;
+                    padding-right: root.scroll-gutter;
                     spacing: 16px;
 
                     VerticalLayout {
@@ -392,23 +402,38 @@ export component SettingsWindow inherits Window {
                 }
             }
 
-            if root.save-error != "": Text {
-                text: root.save-error;
-                font-size: 12px;
-                color: #C42B1C;
-                wrap: word-wrap;
+            if root.save-error != "": HorizontalLayout {
+                padding-right: root.scroll-gutter;
+                Text {
+                    text: root.save-error;
+                    font-size: 12px;
+                    color: #C42B1C;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
+                }
             }
 
-            Rectangle {
-                height: 1px;
-                background: Palette.foreground.with-alpha(0.08);
+            HorizontalLayout {
+                padding-right: root.scroll-gutter;
+                Rectangle {
+                    height: 1px;
+                    horizontal-stretch: 1;
+                    background: Palette.foreground.with-alpha(0.08);
+                }
             }
 
             HorizontalLayout {
                 padding-top: 16px;
                 padding-bottom: 20px;
+                padding-right: root.scroll-gutter;
                 spacing: 8px;
-                alignment: end;
+                Text {
+                    text: root.version-line;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    color: Palette.foreground.with-alpha(0.45);
+                }
+                Rectangle { horizontal-stretch: 1; }
                 Button {
                     text: "Cancel";
                     clicked => {

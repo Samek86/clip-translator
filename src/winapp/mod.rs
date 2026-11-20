@@ -17,8 +17,9 @@ use crate::router::{self, Credentials, TranslateOptions, Translation};
 use crate::secrets::{self, Secrets};
 use crate::ui_text::{
     self, connection_error, detected_label, format_grouped, popup_for_failure, popup_not_text,
-    provider_note, remaining_ratio, AZURE_STATUS_PREFIX, COPIED_LABEL, COPY_FAILED, COPY_LABEL,
-    DEEPL_STATUS_PREFIX, HOTKEY_HINT, HOTKEY_NEEDS_MODIFIER, HOTKEY_UNSUPPORTED, TESTING,
+    provider_note, remaining_ratio, settings_version_line, tray_tooltip, AZURE_STATUS_PREFIX,
+    COPIED_LABEL, COPY_FAILED, COPY_LABEL, DEEPL_STATUS_PREFIX, HOTKEY_HINT, HOTKEY_NEEDS_MODIFIER,
+    HOTKEY_UNSUPPORTED, TESTING,
 };
 use crate::usage::{self, azure_remaining, deepl_remaining, AZURE_MONTHLY_LIMIT};
 
@@ -113,6 +114,8 @@ pub fn run() -> Result<(), String> {
         .display_compact();
     tray.set_hotkey_compact(compact.as_str().into());
     tray.set_hotkey_title(hotkey_menu_title(&compact).into());
+    tray.set_tooltip_text(tray_tooltip().into());
+    settings.set_version_line(settings_version_line().into());
 
     wire_windows(&state, &tray, &settings, &translate);
     tray.show().map_err(|err| err.to_string())?;
